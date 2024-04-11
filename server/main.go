@@ -23,6 +23,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
 
+// TODO: separate method for each endpoint
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Set content type to JSON
 	w.Header().Set("Content-Type", "application/json")
