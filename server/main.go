@@ -337,9 +337,7 @@ func handleLoginRequest(w http.ResponseWriter, r *http.Request) {
 
 func handleServeLoginRequest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	io.WriteString(w, indexBegin)
 	io.WriteString(w, loginTemplate)
-	io.WriteString(w, indexEnd)
 }
 
 func handleLogoutRequest(w http.ResponseWriter, r *http.Request) {
