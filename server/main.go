@@ -147,8 +147,6 @@ func main() {
 	// Create a new router
 	router := mux.NewRouter()
 
-	router.Use(corsMiddleware)
-
 	// Define routes
 	router.HandleFunc("/", handleIndexRequest).Methods("GET", "OPTIONS")
 	router.HandleFunc("/login", handleLoginRequest).Methods("POST", "OPTIONS")
@@ -175,22 +173,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to start https server: %v", err)
 	}
-}
-
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Hx-Current-Url, Hx-Request, Hx-Target, Hx-Trigger")
-
-		// Handle preflight requests
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		// Call the next handler in the chain
-		next.ServeHTTP(w, r)
-	})
 }
 
 func generateTLSCertificate() (tls.Certificate, error) {
