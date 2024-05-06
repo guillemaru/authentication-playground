@@ -2,6 +2,11 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gofrs/uuid"
@@ -11,6 +16,7 @@ import (
 	"io"
 	"log"
 	mrand "math/rand"
+	"math/big"
 	"net/http"
 	"time"
 )
@@ -33,7 +39,7 @@ const signupTemplate = `
 		    <input type="password" id="password" name="password" placeholder="Password" required><br>
 		    <input type="submit" value="Submit">
 		</form>
-		<button hx-post="/servelogin" hx-target="#signupform" hx-swap="outerHTML">Login</button>
+		<button hx-get="/servelogin" hx-target="#signupform" hx-swap="outerHTML">Login</button>
 	    </div>`
 const indexEnd = `
 	</body>
@@ -49,6 +55,12 @@ const loginTemplate = `
 		</form>
 	</div>
 	`
+const invalidCredentialsTemplate= `
+	<div id="loginagain">
+		<p style="color: red;">Invalid username/password. Please try again.</p>
+		<button hx-get="/servelogin" hx-target="#loginagain" hx-swap="outerHTML">Log in</button>
+	</div>`
+
 const loggedInTemplate = `
 	<div id="loggedindiv">
 		<h1>Logged in as {{.Username}}</h1>
@@ -135,18 +147,79 @@ func main() {
 	// Create a new router
 	router := mux.NewRouter()
 
-	// Attach CO::::RS middleware
 	router.Use(corsMiddleware)
 
 	// Define routes
 	router.HandleFunc("/", handleIndexRequest).Methods("GET", "OPTIONS")
 	router.HandleFunc("/login", handleLoginRequest).Methods("POST", "OPTIONS")
-	router.HandleFunc("/servelogin", handleServeLoginRequest).Methods("POST", "GET")
+	router.HandleFunc("/servelogin", handleServeLoginRequest).Methods("GET")
 	router.HandleFunc("/logout", handleLogoutRequest).Methods("POST", "OPTIONS")
 	router.HandleFunc("/signup", handleSignupRequest).Methods("POST", "OPTIONS")
 
-	// Start the HTTP server and listen on port 8080
-	log.Fatal(http.ListenAndServe(":8080", router))
+	// Uncomment this line to serve http instead of https if you do not want to bother with browser security restrictions
+	//log.Fatal(http.ListenAndServe(":8080", router))
+
+	// Start the HTTPS server
+	cert, err := generateTLSCertificate()
+	if err != nil {
+		log.Fatalf("failed to generate TLS certificate: %v", err)
+	}
+	server := &http.Server{
+		Addr:    ":8443",
+		Handler: router,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		},
+	}
+	err = server.ListenAndServeTLS("", "")
+	if err != nil {
+		log.Fatalf("failed to start https server: %v", err)
+	}
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Hx-Current-Url, Hx-Request, Hx-Target, Hx-Trigger")
+
+		// Handle preflight requests
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Call the next handler in the chain
+		next.ServeHTTP(w, r)
+	})
+}
+
+func generateTLSCertificate() (tls.Certificate, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Authentication playground server."},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
 
 func handleIndexRequest(w http.ResponseWriter, r *http.Request) {
@@ -234,11 +307,13 @@ func handleLoginRequest(w http.ResponseWriter, r *http.Request) {
 	// Check if the password matches the stored password
 	storedHashedPassword, exists := credentials[creds.Username]
 	if !exists {
-		http.Error(w, "Username does not exist.", http.StatusForbidden)
+		fmt.Fprint(w, invalidCredentialsTemplate)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword(storedHashedPassword, []byte(creds.Password)); err != nil {
-		http.Error(w, "Invalid password", http.StatusForbidden)
+		fmt.Fprint(w, invalidCredentialsTemplate)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 	// Create a session token (JWT) and send it back as a cookie
@@ -314,22 +389,6 @@ func handleLogoutRequest(w http.ResponseWriter, r *http.Request) {
 	<h1>Logout successful</h1>
 	`
 	fmt.Fprint(w, htmlContent)
-}
-
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Hx-Current-Url, Hx-Request, Hx-Target, Hx-Trigger")
-
-		// Handle preflight requests
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		// Call the next handler in the chain
-		next.ServeHTTP(w, r)
-	})
 }
 
 func createToken(c *UserClaims) (string, error) {
