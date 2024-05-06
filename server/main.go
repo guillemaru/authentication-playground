@@ -1,20 +1,54 @@
 package main
 
 import (
-	"crypto/rand"	
-	"io"
+	"crypto/rand"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
+	"io"
 	"log"
 	mrand "math/rand"
 	"net/http"
 	"time"
 )
 
+const indexBegin= `
+	<!DOCTYPE html>
+	<html lang="en">
+	<head>
+	    <meta charset="UTF-8">
+	    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	    <title>Authentication playground</title>
+	    <script src="https://unpkg.com/htmx.org/dist/htmx.js"></script>
+	</head>
+	<body>`
+const signupTemplate = `
+	    <div id="signupform">
+		<h1>Sign up</h1>
+		<form hx-post="/signup" hx-target="#signupform" hx-swap="outerHTML">
+		    <input type="text" id="username" name="username" placeholder="Username" required><br>
+		    <input type="password" id="password" name="password" placeholder="Password" required><br>
+		    <input type="submit" value="Submit">
+		</form>
+		<button hx-post="/servelogin" hx-target="#signupform" hx-swap="outerHTML">Login</button>
+	    </div>`
+const indexEnd = `
+	</body>
+	</html>
+	`
+const loginTemplate = `
+	<div id="loginform">
+		<h1>Login</h1>
+		<form hx-post="/login" hx-target="#loginform" hx-swap="outerHTML">
+		    <input type="text" id="username" name="username" placeholder="Username" required><br>
+		    <input type="password" id="password" name="password" placeholder="Password" required><br>
+		    <input type="submit" value="Submit">
+		</form>
+	</div>
+	`
 const loggedInTemplate = `
 	<div id="loggedindiv">
 		<h1>Logged in as {{.Username}}</h1>
@@ -107,6 +141,7 @@ func main() {
 	// Define routes
 	router.HandleFunc("/", handleIndexRequest).Methods("GET", "OPTIONS")
 	router.HandleFunc("/login", handleLoginRequest).Methods("POST", "OPTIONS")
+	router.HandleFunc("/servelogin", handleServeLoginRequest).Methods("POST", "GET")
 	router.HandleFunc("/logout", handleLogoutRequest).Methods("POST", "OPTIONS")
 	router.HandleFunc("/signup", handleSignupRequest).Methods("POST", "OPTIONS")
 
@@ -115,28 +150,37 @@ func main() {
 }
 
 func handleIndexRequest(w http.ResponseWriter, r *http.Request) {
-	html := `
-	<!DOCTYPE html>
-	<html lang="en">
-	<head>
-	    <meta charset="UTF-8">
-	    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-	    <title>Authentication playground</title>
-	    <script src="https://unpkg.com/htmx.org/dist/htmx.js"></script>
-	</head>
-	<body>
-	    <div id="signupform">
-		<h1>Sign up</h1>
-		<form hx-post="/signup" hx-target="#signupform" hx-swap="outerHTML">
-		    <input type="text" id="username" name="username" placeholder="Username" required><br>
-		    <input type="password" id="password" name="password" placeholder="Password" required><br>
-		    <input type="submit" value="Submit">
-		</form>
-	    </div>
-	</body>
-	</html>
-	`
-	io.WriteString(w, html)
+	w.Header().Set("Content-Type", "text/html")
+	io.WriteString(w, indexBegin)
+	defer io.WriteString(w, indexEnd) 
+	sessionToken, err := r.Cookie("session_token")
+	if err != nil {
+		io.WriteString(w, signupTemplate)
+		return
+	}
+
+	// Access the value of the cookie
+	tokenString := sessionToken.Value
+	userClaims, err := parseToken(tokenString)
+	if err != nil || tokenIsRevoked(tokenString) {
+		io.WriteString(w, signupTemplate)
+		return
+	}
+	// Return the logged in template
+	tmpl, err := template.New("loggedin").Parse(loggedInTemplate)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	data := struct{ Username string }{
+		Username: userClaims.Username,
+	}
+	err = tmpl.Execute(w, data)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
 }
 
 func handleSignupRequest(w http.ResponseWriter, r *http.Request) {
@@ -164,17 +208,8 @@ func handleSignupRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	credentials[creds.Username] = hashedPassword
 	w.Header().Set("Content-Type", "text/html")
-	htmlContent := `
-	<div id="loginform">
-		<h1>Login</h1>
-		<form hx-post="/login" hx-target="#loginform" hx-swap="outerHTML">
-		    <input type="text" id="username" name="username" placeholder="Username" required><br>
-		    <input type="password" id="password" name="password" placeholder="Password" required><br>
-		    <input type="submit" value="Submit">
-		</form>
-	</div>
-	`
-	fmt.Fprint(w, htmlContent)
+
+	fmt.Fprint(w, loginTemplate)
 }
 
 func handleLoginRequest(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +278,12 @@ func handleLoginRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleServeLoginRequest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	io.WriteString(w, indexBegin)
+	io.WriteString(w, loginTemplate)
+	io.WriteString(w, indexEnd)
+}
 
 func handleLogoutRequest(w http.ResponseWriter, r *http.Request) {
 	// Read the value of the "session_token" cookie from the request
@@ -343,4 +384,13 @@ func revokeToken(toRemove string) error {
 		}
 	}
 	return fmt.Errorf("Key not found")
+}
+
+func tokenIsRevoked(token string) bool {
+	for _, k := range tokensToBeRevoked {
+		if k == token {
+			return false 
+		}
+	}
+	return true 
 }
