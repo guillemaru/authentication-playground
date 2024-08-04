@@ -33,3 +33,5 @@ vendor/
 .env.local
 .env.*
 
+# Ignore server database files
+server/*.db

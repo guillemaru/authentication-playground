@@ -12,9 +12,12 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/mux"
+	"go.etcd.io/bbolt"
 )
 
 // TODO: use a database for: keys, currentKid, credentials, tokensToBeRevoked
+// Package-level variable to hold the database instance
+var db *bbolt.DB
 
 // keys for JWT signing
 var keys = map[string]key{}
@@ -22,6 +25,7 @@ var currentKid = ""
 
 // Local map to store user/hashed password pairs
 var credentials = map[string][]byte{}
+
 var tokensToBeRevoked = []string{}
 
 // For JWT UserClaims
@@ -53,6 +57,18 @@ func generateNewKey() error {
 }
 
 func main() {
+	// Open the database
+	var err error
+	db, err = openDatabase("credentialsdb.db")
+	if err != nil {
+		panic("could not initialise database")
+	}
+	defer db.Close()
+	err = createBucket(db, "CredentialsBucket")
+	if err != nil {
+		panic("could not create credentials database bucket")
+	}
+
 	credentials = make(map[string][]byte)
 	generateNewKey()
 	//TODO: when "keys" will be a database, here we should delete all the entries that have a "created" older than some time (e.g. one week)

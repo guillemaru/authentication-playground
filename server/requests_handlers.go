@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -69,6 +70,11 @@ func handleSignupRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	credentials[creds.Username] = hashedPassword
+	// Alternative:
+	err = addCredential(db, "CredentialsBucket", creds.Username, hashedPassword)
+	if err != nil {
+		log.Fatalf("Failed to add credential: %v", err)
+	}
 	w.Header().Set("Content-Type", "text/html")
 
 	fmt.Fprint(w, loginTemplate)
@@ -94,13 +100,20 @@ func handleLoginRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if the password matches the stored password
-	storedHashedPassword, exists := credentials[creds.Username]
-	if !exists {
+	// Alternative: using database
+	storedHashedPasswordDb, err := getCredential(db, "CredentialsBucket", creds.Username)
+	if err != nil {
 		fmt.Fprint(w, invalidCredentialsTemplate)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	if err := bcrypt.CompareHashAndPassword(storedHashedPassword, []byte(creds.Password)); err != nil {
+	/*storedHashedPassword, exists := credentials[creds.Username]
+	if !exists {
+		fmt.Fprint(w, invalidCredentialsTemplate)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}*/
+	if err := bcrypt.CompareHashAndPassword(storedHashedPasswordDb, []byte(creds.Password)); err != nil {
 		fmt.Fprint(w, invalidCredentialsTemplate)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
