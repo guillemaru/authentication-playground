@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"time"
 
@@ -69,8 +70,7 @@ func handleSignupRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown error", http.StatusInternalServerError)
 		return
 	}
-	credentials[creds.Username] = hashedPassword
-	// Alternative:
+
 	err = addCredential(db, "CredentialsBucket", creds.Username, hashedPassword)
 	if err != nil {
 		log.Fatalf("Failed to add credential: %v", err)
@@ -107,12 +107,7 @@ func handleLoginRequest(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	/*storedHashedPassword, exists := credentials[creds.Username]
-	if !exists {
-		fmt.Fprint(w, invalidCredentialsTemplate)
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}*/
+
 	if err := bcrypt.CompareHashAndPassword(storedHashedPasswordDb, []byte(creds.Password)); err != nil {
 		fmt.Fprint(w, invalidCredentialsTemplate)
 		w.WriteHeader(http.StatusUnauthorized)
@@ -124,7 +119,7 @@ func handleLoginRequest(w http.ResponseWriter, r *http.Request) {
 			// Set the expiration time to one hour from now
 			ExpiresAt: time.Now().Add(time.Hour).Unix(),
 		},
-		SessionID: generateSessionID(),
+		SessionID: rand.Uint64(),
 		Username:  creds.Username,
 	}
 	tokenString, err := createToken(userclaims)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	mrand "math/rand"
 	"net/http"
 	"time"
 
@@ -15,7 +14,8 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-// TODO: use a database for: keys, currentKid, credentials, tokensToBeRevoked
+// TODO: use a database for: keys, currentKid, tokensToBeRevoked
+
 // Package-level variable to hold the database instance
 var db *bbolt.DB
 
@@ -23,15 +23,7 @@ var db *bbolt.DB
 var keys = map[string]key{}
 var currentKid = ""
 
-// Local map to store user/hashed password pairs
-var credentials = map[string][]byte{}
-
 var tokensToBeRevoked = []string{}
-
-// For JWT UserClaims
-func generateSessionID() uint64 {
-	return mrand.Uint64()
-}
 
 // Secret key for the JWT signing
 func generateNewKey() error {
@@ -69,7 +61,6 @@ func main() {
 		panic("could not create credentials database bucket")
 	}
 
-	credentials = make(map[string][]byte)
 	generateNewKey()
 	//TODO: when "keys" will be a database, here we should delete all the entries that have a "created" older than some time (e.g. one week)
 	// Create a new router

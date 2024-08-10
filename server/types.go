@@ -25,10 +25,10 @@ func (u *UserClaims) Valid() error {
 	if u.SessionID == 0 {
 		return fmt.Errorf("invalid session ID")
 	}
-	// Alternative: database
+
 	_, err := getCredential(db, "CredentialsBucket", u.Username)
-	//_, exists := credentials[u.Username]
-	if /*!exists*/ err != nil {
+
+	if err != nil {
 		return fmt.Errorf("invalid username")
 	}
 
